@@ -11,12 +11,14 @@
     website_title: "My Updated CI/CD Project"
     deployment_version: "2.0"
 
+  
   pre_tasks:
     - name: Verify Git repository on Jenkins controller
       ansible.builtin.command:
         cmd: git rev-parse --is-inside-work-tree
         chdir: "{{ playbook_dir }}/.."
       delegate_to: localhost
+      become: false
       run_once: true
       changed_when: false
       tags:
@@ -29,6 +31,7 @@
         - always
 
   tasks:
+
 
     # 1. INSTALLATION
     - name: Install Nginx
