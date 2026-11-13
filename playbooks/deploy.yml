@@ -68,7 +68,7 @@
                 <title>{{ website_title }}</title>
               </head>
               <body>
-                <h1>Welcome to My Updated CI/CD Project!</h1>
+                <h1>Welcome to My Updated Project!</h1>
                 <p>Deployment Version: {{ deployment_version }}</p>
                 <p>Server: {{ inventory_hostname }}</p>
                 <p>Updated automatically using GitHub, Jenkins and Ansible.</p>
