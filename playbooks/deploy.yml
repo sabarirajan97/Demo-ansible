@@ -8,7 +8,7 @@
   tasks:
     - name: Display deployment target
       ansible.builtin.debug:
-        msg: "Deploying on {{ inventory_hostname }}"
+        msg: "Deploying application on {{ inventory_hostname }}"
 
     - name: Install Nginx
       ansible.builtin.apt:
@@ -16,7 +16,7 @@
         state: present
         update_cache: true
 
-    - name: Start and enable Nginx
+    - name: Ensure Nginx is started and enabled
       ansible.builtin.service:
         name: nginx
         state: started
@@ -27,12 +27,15 @@
         dest: /var/www/html/index.html
         content: |
           <html>
-          <head><title>My CI/CD Project</title></head>
+          <head>
+            <title>My Updated CI/CD Project</title>
+          </head>
           <body>
-          <h1>Welcome to My CI/CD Project!</h1>
-          <p>Deployment Version: 2.0</p>
-          <p>Server: {{ inventory_hostname }}</p>
-          <p>Deployment successful!</p>
+            <h1>Welcome to My office CI/CD Project!</h1>
+            <p>Deployment Version: 2.0</p>
+            <p>Server: {{ inventory_hostname }}</p>
+            <p>Updated automatically using GitHub, Jenkins and Ansible.</p>
+            <p>Deployment successful!</p>
           </body>
           </html>
         owner: www-data
@@ -40,13 +43,20 @@
         mode: '0644'
       notify: Restart Nginx
 
-    - name: Apply pending handlers
+    - name: Restart Nginx before verification if changed
       ansible.builtin.meta: flush_handlers
 
     - name: Verify Nginx HTTP response
       ansible.builtin.uri:
         url: http://127.0.0.1
+        method: GET
         status_code: 200
+        return_content: true
+      register: nginx_response
+
+    - name: Display deployment verification
+      ansible.builtin.debug:
+        msg: "Nginx deployment successful on {{ inventory_hostname }}"
 
   handlers:
     - name: Restart Nginx
