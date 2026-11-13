@@ -2,61 +2,159 @@
 - name: Install and deploy Nginx web servers
   hosts: webservers
   become: true
+
+  # Rolling deployment: one server at a time
   serial: 1
   any_errors_fatal: true
 
-  tasks:
+  vars:
+    website_title: "My Updated CI/CD Project"
+    deployment_version: "2.0"
+
+  pre_tasks:
+    - name: Verify Git repository on Jenkins controller
+      ansible.builtin.command:
+        cmd: git rev-parse --is-inside-work-tree
+        chdir: "{{ playbook_dir }}/.."
+      delegate_to: localhost
+      run_once: true
+      changed_when: false
+      tags:
+        - preflight
+
     - name: Display deployment target
       ansible.builtin.debug:
         msg: "Deploying application on {{ inventory_hostname }}"
+      tags:
+        - always
 
+  tasks:
+
+    # 1. INSTALLATION
     - name: Install Nginx
-      ansible.builtin.apt:
-        name: nginx
-        state: present
-        update_cache: true
+      block:
+        - name: Update APT cache and install Nginx
+          ansible.builtin.apt:
+            name: nginx
+            state: present
+            update_cache: true
+            cache_valid_time: 3600
 
+      tags:
+        - install
+
+    # 2. SERVICE MANAGEMENT
     - name: Ensure Nginx is started and enabled
       ansible.builtin.service:
         name: nginx
         state: started
         enabled: true
+      tags:
+        - service
 
-    - name: Deploy application webpage
-      ansible.builtin.copy:
-        dest: /var/www/html/index.html
-        content: |
-          <html>
-          <head>
-            <title>My Updated CI/CD Project</title>
-          </head>
-          <body>
-            <h1>Welcome to chennai!</h1>
-            <p>Deployment Version: 2.0</p>
-            <p>Server: {{ inventory_hostname }}</p>
-            <p>Updated automatically using GitHub, Jenkins and Ansible.</p>
-            <p>Deployment successful!</p>
-          </body>
-          </html>
-        owner: www-data
-        group: www-data
-        mode: '0644'
-      notify: Restart Nginx
+    # 3. DEPLOYMENT AND ERROR RECOVERY
+    - name: Deploy and verify application
+      block:
 
-    - name: Restart Nginx before verification if changed
-      ansible.builtin.meta: flush_handlers
+        - name: Deploy application webpage
+          ansible.builtin.copy:
+            dest: /var/www/html/index.html
+            content: |
+              <html>
+              <head>
+                <title>{{ website_title }}</title>
+              </head>
+              <body>
+                <h1>Welcome to My Updated CI/CD Project!</h1>
+                <p>Deployment Version: {{ deployment_version }}</p>
+                <p>Server: {{ inventory_hostname }}</p>
+                <p>Updated automatically using GitHub, Jenkins and Ansible.</p>
+                <p>Deployment successful!</p>
+              </body>
+              </html>
+            owner: www-data
+            group: www-data
+            mode: '0644'
+            backup: true
+          register: deployed_page
+          notify: Restart Nginx
+          tags:
+            - deploy
 
-    - name: Verify Nginx HTTP response
-      ansible.builtin.uri:
-        url: http://127.0.0.1
-        method: GET
-        status_code: 200
-        return_content: true
-      register: nginx_response
+        - name: Restart Nginx before verification if changed
+          ansible.builtin.meta: flush_handlers
+          tags:
+            - deploy
 
-    - name: Display deployment verification
-      ansible.builtin.debug:
-        msg: "Nginx deployment successful on {{ inventory_hostname }}"
+        - name: Verify Nginx HTTP response
+          ansible.builtin.uri:
+            url: http://127.0.0.1
+            method: GET
+            status_code: 200
+            return_content: true
+          register: nginx_response
+          when: not ansible_check_mode
+          tags:
+            - verify
+
+        - name: Display deployment verification
+          ansible.builtin.debug:
+            msg: >-
+              Nginx deployment successful on {{ inventory_hostname }}.
+              HTTP status: {{ nginx_response.status }}
+          when: not ansible_check_mode
+          tags:
+            - verify
+
+      rescue:
+
+        - name: Restore previous webpage if backup exists
+          ansible.builtin.copy:
+            src: "{{ deployed_page.backup_file }}"
+            dest: /var/www/html/index.html
+            remote_src: true
+            owner: www-data
+            group: www-data
+            mode: '0644'
+          when:
+            - deployed_page is defined
+            - deployed_page.backup_file is defined
+          notify: Restart Nginx
+          tags:
+            - always
+
+        - name: Remove newly created webpage if no previous file existed
+          ansible.builtin.file:
+            path: /var/www/html/index.html
+            state: absent
+          when:
+            - deployed_page is defined
+            - deployed_page.changed | default(false)
+            - deployed_page.backup_file is not defined
+          notify: Restart Nginx
+          tags:
+            - always
+
+        - name: Execute recovery handler
+          ansible.builtin.meta: flush_handlers
+          tags:
+            - always
+
+        - name: Fail deployment after recovery attempt
+          ansible.builtin.fail:
+            msg: >-
+              Deployment failed on {{ inventory_hostname }}.
+              Recovery was attempted. Check the Ansible logs.
+          tags:
+            - always
+
+      always:
+
+        - name: Display deployment completion status
+          ansible.builtin.debug:
+            msg: "Deployment tasks finished on {{ inventory_hostname }}"
+          tags:
+            - always
 
   handlers:
     - name: Restart Nginx
